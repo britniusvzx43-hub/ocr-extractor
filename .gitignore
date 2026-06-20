@@ -1,0 +1,8 @@
+# Runtime data (auto-generated, not source)
+usage_log.jsonl
+improve_state.json
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store

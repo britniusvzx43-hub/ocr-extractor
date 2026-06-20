@@ -1,0 +1,41 @@
+{
+  "ocr": {
+    "lang": "chi_sim",
+    "psm": "auto",
+    "fallback_threshold": 100
+  },
+  "watermark": {
+    "enabled": true,
+    "bottom_scan_rows": 150,
+    "gray_range": [40, 190],
+    "gray_ratio_threshold": 0.03,
+    "dark_ratio_max": 0.15,
+    "crop_bottom": 60
+  },
+  "preprocessing": {
+    "contrast_stretch": true,
+    "otsu_binarize": true,
+    "otsu_skip_chars_threshold": 100
+  },
+  "postprocessing": {
+    "min_cjk_ratio": 0.3,
+    "max_blank_lines": 3,
+    "watermark_keywords": [
+      "智慧的大聪明",
+      "售后更新微信",
+      "yize2288",
+      "是沿到疗",
+      "莉呈在河",
+      "旨直泊到"
+    ]
+  },
+  "self_improve": {
+    "enabled": true,
+    "log_usage": true,
+    "auto_tune_thresholds": true,
+    "auto_trigger_quality_threshold": 0.7,
+    "min_samples_for_tuning": 5,
+    "cooldown_hours": 1,
+    "learn_watermarks": true
+  }
+}
