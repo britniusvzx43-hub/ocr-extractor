@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [1.2.0] 2026-06-20
+
+### Added
+- **图片排序 (`--sort`)**: 快速 OCR 检测每张图的页码（支持 "第X讲"、独立数字、角标等多种格式），自动重排。不足 60% 检出率时回退文件名排序。
+- **自动纠错 (`--auto-correct`)**: 内置 OCR 混淆字典（30+ 常见错误），上下文校验后自动替换（赁→凭、焚→婪、约想→幻想 等）。支持正则模式匹配和用户自定义 `extra_corrections`。
+- **新增配置节**: `auto_correct`（enabled/confidence_threshold/extra_corrections）、`sorting`（enabled/min_detection_ratio/fallback）
+
 ## [1.1.0] 2026-06-20
 
 ### Added

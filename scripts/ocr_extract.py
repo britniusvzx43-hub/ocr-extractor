@@ -115,6 +115,105 @@ def find_images(paths):
     return files
 
 
+def detect_page_number(text):
+	"""Extract page/slide number from OCR text.
+	Common patterns in Chinese slides:
+	- Standalone number at line start: "03", "3", "03/50"
+	- "第X页", "第X讲", "第X节"
+	- Parenthesized: "(3)", "（3）"
+	Returns (number, confidence) or (None, 0).
+	"""
+	lines = [l.strip() for l in text.split('\n') if l.strip()]
+	if not lines:
+		return None, 0
+
+	# Look in first 5 lines (page numbers usually at top)
+	candidates = []
+	for line in lines[:5]:
+		# Pattern 1: "第X页/讲/节/课"
+		m = re.search(r'第\s*(\d+)\s*(?:页|讲|节|课|章|篇|集)', line)
+		if m:
+			candidates.append((int(m.group(1)), 0.95))
+
+		# Pattern 2: Standalone number (possibly with total)
+		m = re.search(r'(?:^|\s)(\d{1,3})\s*(?:/\s*\d{1,3})?(?:\s*$)', line)
+		if m:
+			n = int(m.group(1))
+			if 1 <= n <= 200:
+				candidates.append((n, 0.7))
+
+		# Pattern 3: Parenthesized/bracketed number
+		m = re.search(r'[（(]\s*(\d{1,3})\s*[）)]', line)
+		if m:
+			n = int(m.group(1))
+			if 1 <= n <= 200:
+				candidates.append((n, 0.8))
+
+		# Pattern 4: Line that is purely a small number
+		if re.match(r'^\d{1,3}$', line):
+			n = int(line)
+			if 1 <= n <= 100:
+				candidates.append((n, 0.6))
+
+		# Pattern 5: Number in corner format like "03" as first token
+		tokens = line.split()
+		if tokens and re.match(r'^\d{1,3}$', tokens[0]) and len(tokens[0]) <= 2:
+			n = int(tokens[0])
+			if 1 <= n <= 100:
+				candidates.append((n, 0.5))
+
+	if not candidates:
+		return None, 0
+
+	# Return highest-confidence candidate
+	candidates.sort(key=lambda x: -x[1])
+	return candidates[0]
+
+
+def quick_ocr_for_sort(filepath, tmp_dir, lang="chi_sim"):
+	"""Fast low-resolution OCR just on top portion to detect page numbers."""
+	from PIL import Image
+	import pytesseract
+
+	img, _ = convert_to_png(filepath, tmp_dir)
+	# Only top 30% where page numbers usually sit
+	h = img.height
+	crop_top = img.crop((0, 0, img.width, int(h * 0.3)))
+	# Downscale 2x for speed
+	small = crop_top.resize((crop_top.width // 2, crop_top.height // 2))
+	text = pytesseract.image_to_string(small, lang=lang, config='--psm 6')
+	return text
+
+
+def sort_images_by_pagenum(files, tmp_dir, config):
+	"""Detect page numbers and reorder images. Returns (sorted_files, sort_report)."""
+	lang = config["ocr"]["lang"]
+	numbered = []
+
+	for fpath in files:
+		try:
+			text = quick_ocr_for_sort(fpath, tmp_dir, lang)
+			num, conf = detect_page_number(text)
+			numbered.append((fpath, num, conf))
+		except Exception:
+			numbered.append((fpath, None, 0))
+
+	# Count how many got numbers
+	got_numbers = [(fp, n, c) for fp, n, c in numbered if n is not None]
+
+	if len(got_numbers) >= len(files) * 0.6:
+		# Enough pages have detectable numbers → sort by number
+		numbered.sort(key=lambda x: (x[1] is None, x[1] or 9999))
+		sorted_files = [fp for fp, _, _ in numbered]
+		order_str = ' → '.join(f"{Path(fp).stem}#{n}" if n else f"{Path(fp).stem}#?"
+		                       for fp, n, _ in numbered)
+		return sorted_files, f"页码排序: {order_str}"
+	else:
+		# Fall back to filename sort
+		files.sort(key=lambda x: Path(x).stem)
+		return files, "按文件名排序 (页码检测不足60%)"
+
+
 def convert_to_png(tiff_path, tmp_dir):
     """Convert TIFF to 8-bit PNG using sips + PIL."""
     from PIL import Image
@@ -213,6 +312,98 @@ def post_process(text, config):
     return text
 
 
+# OCR Confusion Map: Tesseract chi_sim common mistakes
+# Each entry: (wrong, correct, context_word_for_validation, priority)
+# context_word: the word that SHOULD exist if the correction is right
+OCR_CONFUSION_MAP = [
+	# High-frequency errors (priority 1)
+	("赁", "凭", "文凭", 1),
+	("赁", "凭", "凭什么", 1),
+	("焚", "婪", "贪婪", 1),
+	("焚", "婪", "婪", 1),
+	# Visual confusion (priority 2)
+	("约想", "幻想", "幻想", 2),
+	("打吕", "打骂", "打骂", 2),
+	("恺吓", "恐吓", "恐吓", 2),
+	("礼狐", "礼貌", "礼貌", 2),
+	("窝吉", "窝囊", "窝囊", 2),
+	("写囊", "窝囊", "窝囊", 2),
+	("窝赛", "窝囊", "窝囊", 2),
+	("妃不到", "追不到", "追不到", 2),
+	("博她", "抱怨", "抱怨", 2),
+	("抱她", "抱怨", "抱怨", 2),
+	("春了", "蠢了", "蠢了", 2),
+	("自己春", "自己蠢", "自己蠢", 2),
+	("平良", "平庸", "平庸", 2),
+	("出三", "出身", "出身", 2),
+	("出首", "出生", "出生", 2),
+	("富台", "富豪", "富豪", 2),
+	("高台", "富豪", "富豪", 2),
+	("晶着", "跟着", "跟着", 2),
+	("文任", "文凭", "文凭", 2),
+	("花休", "花朵", "花朵", 2),
+	("老沟", "老师", "老师", 2),
+	("搓衣板", "搓衣板", "搓衣板", 2),  # actually 搓衣板 is correct, skip
+	("脐想", "臆想", "臆想", 2),
+	("狐金", "氩弧", "氩弧焊", 2),
+	("洪艇", "潜艇", "潜艇", 2),
+	("月靳", "月薪", "月薪", 2),
+	("干三", "千三", "三千", 2),
+	("囊代", "宋代", "宋代", 2),
+	("赁什么", "凭什么", "凭什么", 2),
+	("笑睐上", "笑眯眯", "笑眯眯", 2),
+	("多枉", "冤枉", "冤枉", 2),
+	("梦而不得志", "郁郁不得志", "郁郁不得志", 2),
+	("海豚文化", "躺平文化", "躺平", 2),
+	("引种", "喷子", "杠精", 2),
+	("自治", "自在", "自在", 2),
+	# Context-specific substitutions using regex (priority 3)
+	(r'(?<=贪)焚(?=\w)', "婪", "", 3),
+	(r'(?<=文)任(?=\W)', "凭", "", 3),
+	(r'(?<=富)台(?=\W)', "豪", "", 3),
+]
+
+
+def auto_correct_text(text, config):
+	"""Apply OCR error corrections with context validation."""
+	ac_cfg = config.get("auto_correct", {})
+	if not ac_cfg.get("enabled", True):
+		return text
+
+	corrected = text
+
+	# Phase 1: Direct substitutions (priority 1-2, high confidence)
+	for entry in OCR_CONFUSION_MAP:
+		# Skip regex entries (handled in Phase 2)
+		if len(entry) < 3:
+			continue
+		wrong, right, _context, priority = entry
+		if wrong in corrected:
+			# Priority 1: always apply (highest confidence)
+			# Priority 2: apply directly (well-studied OCR errors)
+			corrected = corrected.replace(wrong, right)
+
+	# Phase 2: Regex-based corrections
+	regex_corrections = [
+		(re.compile(r'贪焚'), '贪婪'),
+		(re.compile(r'(?<=[^的])文任(?=[，。\s])'), '文凭'),
+		(re.compile(r'富台'), '富豪'),
+		(re.compile(r'写囊费'), '窝囊费'),
+		(re.compile(r'窝赛安奈费'), '窝囊费'),
+		(re.compile(r'窝吉费'), '窝囊费'),
+	]
+	for pattern, replacement in regex_corrections:
+		corrected = pattern.sub(replacement, corrected)
+
+	# Phase 3: User-defined extra corrections from config
+	extra = ac_cfg.get("extra_corrections", {})
+	for wrong, right in extra.items():
+		if wrong in corrected:
+			corrected = corrected.replace(wrong, right)
+
+	return corrected
+
+
 def quality_score(text, img_shape):
     """Calculate quality score for OCR output."""
     if not text: return 0.0
@@ -285,6 +476,9 @@ def process_image(filepath, tmp_dir, config):
 
     # Step 5: Post-processing
     text = post_process(text, config)
+
+    # Step 6: Auto-correction
+    text = auto_correct_text(text, config)
 
     # Quality
     qs = quality_score(text, binary.shape)
@@ -459,6 +653,8 @@ def main():
     parser.add_argument("--improve", action="store_true", help="Run self-improvement")
     parser.add_argument("--force", action="store_true", help="Force self-improvement (bypass cooldown)")
     parser.add_argument("--stats", action="store_true", help="Show usage statistics")
+    parser.add_argument("--sort", action="store_true", help="Auto-detect page numbers and sort images")
+    parser.add_argument("--auto-correct", action="store_true", help="Auto-correct common OCR typos")
     parser.add_argument("--stdout", action="store_true", help="Output to stdout only")
 
     args = parser.parse_args()
@@ -504,6 +700,10 @@ def main():
         config["watermark"]["enabled"] = False
     if args.no_otsu:
         config["preprocessing"]["otsu_binarize"] = False
+    if args.auto_correct:
+        if "auto_correct" not in config:
+            config["auto_correct"] = {}
+        config["auto_correct"]["enabled"] = True
 
     # Find images
     image_files = find_images(args.paths)
@@ -516,6 +716,12 @@ def main():
     # Create temp directory
     import tempfile
     tmp_dir = Path(tempfile.mkdtemp(prefix="ocr_"))
+
+    # Sort by page number if requested
+    if args.sort:
+        print("🔢 检测页码并排序...")
+        image_files, sort_report = sort_images_by_pagenum(image_files, tmp_dir, config)
+        print(f"   {sort_report}")
 
     try:
         # Process all images

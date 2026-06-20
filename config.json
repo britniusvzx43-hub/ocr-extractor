@@ -29,6 +29,16 @@
       "旨直泊到"
     ]
   },
+  "auto_correct": {
+    "enabled": false,
+    "confidence_threshold": 0.6,
+    "extra_corrections": {}
+  },
+  "sorting": {
+    "enabled": false,
+    "min_detection_ratio": 0.6,
+    "fallback": "filename"
+  },
   "self_improve": {
     "enabled": true,
     "log_usage": true,
