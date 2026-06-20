@@ -1,7 +1,7 @@
 ---
 name: ocr-extractor
 description: "Extract Chinese text from images (图片转文字). Converts TIFF/PNG/JPG to clean Markdown via Tesseract OCR. Auto-removes watermarks (水印去除), applies adaptive binarization, batches multiple images, deduplicates, and outputs structured notes. Ideal for Obsidian notes, document digitization (文档数字化), screenshot-to-text (截图转文字), and knowledge management (知识管理). Self-improving via usage tracking and parameter auto-tuning."
-version: 1.2.0
+version: 1.3.0
 license: MIT
 user-invocable: true
 allowed-tools:

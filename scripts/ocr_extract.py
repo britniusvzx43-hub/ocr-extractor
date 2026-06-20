@@ -560,8 +560,209 @@ def merge_consecutive(results):
     return merged
 
 
-def build_markdown(results, title="OCR 提取结果"):
-    """Build structured markdown from OCR results."""
+
+def _get_bigrams(text):
+	"""Extract character bigrams from Chinese text for continuity analysis."""
+	chars = re.findall(r'[一-鿿]', text)
+	return set(''.join(chars[i:i+2]) for i in range(len(chars)-1))
+
+
+def _bigram_jaccard(a, b):
+	"""Jaccard similarity of character bigram sets. Higher = more continuous."""
+	ba = _get_bigrams(a)
+	bb = _get_bigrams(b)
+	if not ba or not bb:
+		return 0.5
+	return len(ba & bb) / len(ba | bb)
+
+
+def _is_strong_paragraph_start(sent):
+	"""Check if a sentence starts with a STRONG paragraph-initiating pattern.
+	Only matches patterns that reliably indicate a new paragraph in Chinese prose.
+	Common transition words like 所以/但是/那么 are EXCLUDED — they often appear
+	mid-paragraph and are not reliable paragraph-start signals on their own.
+	"""
+	strong_starters = [
+		# Topic shifts (introduce entirely new subject)
+		'对于', '关于', '至于',
+		# Structural markers
+		'首先', '其次', '最后', '第一', '第二', '第三',
+		# Summary/conclusion
+		'总之', '总而言之', '综上所述',
+		# Perspective shifts
+		'换一个角度', '回过头来看', '从另一个方面',
+		'上帝视角', '二元对立',
+		# Historical/contextual shifts
+		'从古至今', '自古以来',
+		# Rhetorical section openers
+		'让你了解', '开讲之前',
+	]
+	start = sent[:6]
+	for s in strong_starters:
+		if start.startswith(s):
+			return True
+	return False
+
+
+def segment_paragraphs(texts):
+	"""Segment concatenated OCR texts into logical paragraphs.
+
+	Strategy (priority order):
+	1. Blank lines in OCR output -> DEFINITE paragraph break
+	   (validated: only when prev line ends with punctuation or next starts new topic)
+	2. For paragraphs > max_chars -> split at weakest continuity point
+
+	Args:
+	    texts: list of OCR text strings from each image, in order
+	Returns:
+	    list of paragraph strings
+	"""
+	full_text = '\n'.join(t for t in texts if t.strip())
+	if not full_text.strip():
+		return []
+
+	# Step 1: Normalize OCR line wrapping. Join lines that are clearly wrapped.
+	# Validate blank lines: only preserve as paragraph breaks when surrounding
+	# context confirms they are real (not OCR artifacts like split words).
+	lines = full_text.split('\n')
+	normalized = []
+	i = 0
+	while i < len(lines):
+		line = lines[i].strip()
+		if not line:
+			# Validate this blank line
+			prev_line = ''
+			for j in range(len(normalized) - 1, -1, -1):
+				if normalized[j] != '':
+					prev_line = normalized[j]
+					break
+			next_line = ''
+			for j in range(i + 1, len(lines)):
+				if lines[j].strip():
+					next_line = lines[j].strip()
+					break
+
+			is_real_break = False
+			if prev_line and next_line:
+				prev_ends = bool(re.search(r'[。！？」』）\)]$', prev_line))
+				next_starts = _is_strong_paragraph_start(next_line)
+				# Real break if: prev ends properly, next starts new topic, or next is long
+				is_real_break = prev_ends or next_starts
+
+			if is_real_break:
+				if normalized and normalized[-1] != '':
+					normalized.append('')
+			i += 1
+			continue
+
+		# Join with next non-empty line if current doesn't end a sentence
+		if (i + 1 < len(lines) and
+			lines[i + 1].strip() and
+			not re.search(r'[。！？」』）\)…—]$', line)):
+			normalized.append(line + lines[i + 1].strip())
+			i += 2
+		else:
+			normalized.append(line)
+			i += 1
+
+	text = '\n'.join(normalized)
+
+	# Step 2: Split into sentences at Chinese punctuation
+	raw = re.split(r'(?<=[。！？])\s*', text)
+	sentences = [s.strip() for s in raw if s.strip()]
+
+	if len(sentences) <= 1:
+		return [text.strip()] if text.strip() else []
+
+	# Step 3: Map sentence positions
+	sent_positions = []
+	pos = 0
+	for sent in sentences:
+		idx = text.find(sent, pos)
+		sent_positions.append(idx if idx >= 0 else -1)
+		if idx >= 0:
+			pos = idx + len(sent)
+
+	# Step 4: Primary pass — group sentences, splitting only on blank lines
+	paragraphs = []
+	current = [sentences[0]]
+
+	for idx in range(1, len(sentences)):
+		prev = sentences[idx - 1]
+		curr = sentences[idx]
+
+		has_blank = False
+		if sent_positions[idx - 1] >= 0 and sent_positions[idx] >= 0:
+			between_start = sent_positions[idx - 1] + len(prev)
+			between_end = sent_positions[idx]
+			between = text[between_start:between_end]
+			has_blank = bool(re.search(r'\n\s*\n', between))
+
+		if has_blank:
+			paragraphs.append(''.join(current))
+			current = [curr]
+		else:
+			current.append(curr)
+
+	if current:
+		paragraphs.append(''.join(current))
+
+	# Step 5: Secondary pass — split overly long paragraphs
+	MAX_CHARS = 2000
+	result = []
+	for para in paragraphs:
+		if len(para) <= MAX_CHARS:
+			result.append(para)
+			continue
+
+		para_sents = re.split(r'(?<=[。！？])\s*', para)
+		para_sents = [s.strip() for s in para_sents if s.strip()]
+
+		if len(para_sents) <= 2:
+			result.append(para)
+			continue
+
+		# Score each sentence boundary
+		boundaries = []
+		for j in range(1, len(para_sents)):
+			jaccard = _bigram_jaccard(para_sents[j - 1], para_sents[j])
+			is_strong = _is_strong_paragraph_start(para_sents[j])
+			score = jaccard - (0.3 if is_strong else 0)
+			boundaries.append((j, score))
+
+		boundaries.sort(key=lambda x: x[1])
+
+		chunks = []
+		chunk_start = 0
+		for j in range(1, len(para_sents)):
+			chunk_text = ''.join(para_sents[chunk_start:j])
+			if len(chunk_text) >= MAX_CHARS:
+				candidates = [(idx, score) for idx, score in boundaries if chunk_start < idx <= j]
+				if candidates:
+					best = min(candidates, key=lambda x: x[1])
+					split_at = best[0]
+				else:
+					split_at = j
+				chunks.append(''.join(para_sents[chunk_start:split_at]))
+				chunk_start = split_at
+
+		if chunk_start < len(para_sents):
+			chunks.append(''.join(para_sents[chunk_start:]))
+
+		result.extend(chunks)
+
+	return result
+
+
+def build_markdown(results, title="OCR 提取结果", segmented=True):
+    """Build structured markdown from OCR results.
+
+    Args:
+        results: list of (fname, text, qs, meta) tuples
+        title: document title
+        segmented: if True, auto-detect logical paragraphs (default).
+                   if False, use image-based sections (legacy).
+    """
     lines = [
         "---",
         f"tags: [ocr, auto-generated]",
@@ -573,27 +774,35 @@ def build_markdown(results, title="OCR 提取结果"):
         f"> 由 ocr-extractor 自动生成，共 {len(results)} 张图片。",
         "",
         "---",
-        ""
+        "",
     ]
 
-    for i, (fname, text, qs, meta) in enumerate(results, 1):
-        # Try to extract a section header from first meaningful line
-        first_line = ""
-        for line in text.split('\n'):
-            s = line.strip()
-            if len(s) > 5:
-                first_line = s[:40]
-                break
+    if segmented:
+        # Concatenate all OCR texts and split into logical paragraphs
+        texts = [text for _, text, _, _ in results]
+        paragraphs = segment_paragraphs(texts)
 
-        lines.append(f"## 第{i}节")
+        for para in paragraphs:
+            if para.strip():
+                lines.append(para.strip())
+                lines.append("")
+
+        avg_qs = sum(q for _, _, q, _ in results) / max(len(results), 1)
+        total_chars = sum(len(t) for _, t, _, _ in results)
+        lines.append(f"> 共 {len(paragraphs)} 段, {total_chars} 字符, 平均质量 {avg_qs*100:.0f}%")
         lines.append("")
-        lines.append(text.strip())
-        lines.append("")
-        if qs > 0:
-            lines.append(f"> 质量: {qs*100:.0f}% | 来源: {fname}")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+
+    else:
+        for i, (fname, text, qs, meta) in enumerate(results, 1):
+            lines.append(f"## 第{i}节")
+            lines.append("")
+            lines.append(text.strip())
+            lines.append("")
+            if qs > 0:
+                lines.append(f"> 质量: {qs*100:.0f}% | 来源: {fname}")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
 
     return '\n'.join(lines)
 
@@ -691,6 +900,7 @@ def main():
     parser.add_argument("--stats", action="store_true", help="Show usage statistics")
     parser.add_argument("--no-sort", action="store_true", help="Disable auto page-number sorting")
     parser.add_argument("--no-auto-correct", action="store_true", help="Disable auto OCR error correction")
+    parser.add_argument("--no-segment", action="store_true", help="Disable auto paragraph segmentation (use image-based sections)")
     parser.add_argument("--stdout", action="store_true", help="Output to stdout only")
 
     args = parser.parse_args()
@@ -788,7 +998,7 @@ def main():
             print(f"🔗 合并: {before} → {len(results)} (合并 {before - len(results)} 对)")
 
         # Build markdown
-        md = build_markdown(results, args.title)
+        md = build_markdown(results, args.title, segmented=not args.no_segment)
 
         # Output
         if args.stdout:

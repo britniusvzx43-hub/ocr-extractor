@@ -1,7 +1,7 @@
 # OCR Extractor · 图片转文字
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](CHANGELOG.md)
 [![Self-Improving](https://img.shields.io/badge/self--improving-yes-orange.svg)](#self-improvement)
 
 **Claude Code Skill** — 将图片自动转为干净的 Markdown 中文文本，支持水印去除、页码排序、自动纠错、自适应调优。
@@ -24,6 +24,7 @@ Extract clean Chinese text from images (TIFF/PNG/JPG) via Tesseract OCR. Auto wa
 - ✏️ **自动纠错**: 内置 30+ Tesseract 中文混淆对，上下文校验
 - 🎯 **Otsu 二值化**: 自适应阈值 + 稀疏文本回退
 - 🔍 **去重合并**: MD5 近重复检测 + 连续内容合并
+- 📝 **智能分段**: 自动识别逻辑段落（非按图分节），空白行校验 + 语义分析
 - 🧬 **自进化**: 使用日志 → 质量分析 → 自动调优参数
 
 ## Requirements
@@ -73,6 +74,7 @@ python3 scripts/ocr_extract.py --check-deps
 | `--lang <code>` | Tesseract 语言 (default: `chi_sim`) |
 | `--no-sort` | 关闭页码自动排序 |
 | `--no-auto-correct` | 关闭自动纠错 |
+| `--no-segment` | 关闭智能分段（回退到按图分节） |
 | `--no-watermark` | 关闭水印去除 |
 | `--no-otsu` | 关闭 Otsu 二值化 |
 | `--stdout` | 输出到终端 |

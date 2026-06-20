@@ -39,6 +39,12 @@
     "min_detection_ratio": 0.6,
     "fallback": "filename"
   },
+  "segmentation": {
+    "enabled": true,
+    "bigram_jaccard_threshold": 0.08,
+    "starter_jaccard_threshold": 0.35,
+    "max_paragraph_chars": 3000
+  },
   "self_improve": {
     "enabled": true,
     "log_usage": true,
