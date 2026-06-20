@@ -30,12 +30,12 @@
     ]
   },
   "auto_correct": {
-    "enabled": false,
+    "enabled": true,
     "confidence_threshold": 0.6,
     "extra_corrections": {}
   },
   "sorting": {
-    "enabled": false,
+    "enabled": true,
     "min_detection_ratio": 0.6,
     "fallback": "filename"
   },

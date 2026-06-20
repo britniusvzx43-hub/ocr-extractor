@@ -653,8 +653,8 @@ def main():
     parser.add_argument("--improve", action="store_true", help="Run self-improvement")
     parser.add_argument("--force", action="store_true", help="Force self-improvement (bypass cooldown)")
     parser.add_argument("--stats", action="store_true", help="Show usage statistics")
-    parser.add_argument("--sort", action="store_true", help="Auto-detect page numbers and sort images")
-    parser.add_argument("--auto-correct", action="store_true", help="Auto-correct common OCR typos")
+    parser.add_argument("--no-sort", action="store_true", help="Disable auto page-number sorting")
+    parser.add_argument("--no-auto-correct", action="store_true", help="Disable auto OCR error correction")
     parser.add_argument("--stdout", action="store_true", help="Output to stdout only")
 
     args = parser.parse_args()
@@ -700,10 +700,10 @@ def main():
         config["watermark"]["enabled"] = False
     if args.no_otsu:
         config["preprocessing"]["otsu_binarize"] = False
-    if args.auto_correct:
+    if args.no_auto_correct:
         if "auto_correct" not in config:
             config["auto_correct"] = {}
-        config["auto_correct"]["enabled"] = True
+        config["auto_correct"]["enabled"] = False
 
     # Find images
     image_files = find_images(args.paths)
@@ -717,8 +717,8 @@ def main():
     import tempfile
     tmp_dir = Path(tempfile.mkdtemp(prefix="ocr_"))
 
-    # Sort by page number if requested
-    if args.sort:
+    # Sort by page number (enabled by default, use --no-sort to disable)
+    if not args.no_sort:
         print("🔢 检测页码并排序...")
         image_files, sort_report = sort_images_by_pagenum(image_files, tmp_dir, config)
         print(f"   {sort_report}")
