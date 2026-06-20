@@ -100,6 +100,14 @@ def otsu_threshold(arr):
     return thresh
 
 
+def natural_sort_key(name):
+    """Split filename into text/int chunks for natural sorting.
+    '资源 2 1' → ['资源 ', 2, ' ', 1] so 2 < 14 properly."""
+    import re as _re
+    parts = _re.split(r'(\d+)', str(name))
+    return [int(p) if p.isdigit() else p.lower() for p in parts]
+
+
 def find_images(paths):
     """Find all image files from list of paths."""
     exts = {'.tiff', '.tif', '.png', '.jpg', '.jpeg', '.bmp', '.gif'}
@@ -107,7 +115,7 @@ def find_images(paths):
     for p in paths:
         pp = Path(p)
         if pp.is_dir():
-            for f in sorted(pp.iterdir()):
+            for f in sorted(pp.iterdir(), key=lambda x: natural_sort_key(x.name)):
                 if f.suffix.lower() in exts and not f.name.startswith('._'):
                     files.append(str(f))
         elif pp.is_file() and pp.suffix.lower() in exts:
@@ -209,9 +217,9 @@ def sort_images_by_pagenum(files, tmp_dir, config):
 		                       for fp, n, _ in numbered)
 		return sorted_files, f"页码排序: {order_str}"
 	else:
-		# Fall back to filename sort
-		files.sort(key=lambda x: Path(x).stem)
-		return files, "按文件名排序 (页码检测不足60%)"
+		# Fall back to natural filename sort
+		files.sort(key=lambda x: natural_sort_key(Path(x).stem))
+		return files, "按文件名排序 (自然序, 页码检测不足60%)"
 
 
 def convert_to_png(tiff_path, tmp_dir):
@@ -357,6 +365,10 @@ OCR_CONFUSION_MAP = [
 	("海豚文化", "躺平文化", "躺平", 2),
 	("引种", "喷子", "杠精", 2),
 	("自治", "自在", "自在", 2),
+	("出类拔柱", "出类拔萃", "出类拔萃", 2),
+	("干万", "千万", "千万", 2),
+	("书采子", "书呆子", "书呆子", 2),
+	("窝囊安奈费", "窝囊费", "窝囊费", 2),
 	# Context-specific substitutions using regex (priority 3)
 	(r'(?<=贪)焚(?=\w)', "婪", "", 3),
 	(r'(?<=文)任(?=\W)', "凭", "", 3),
@@ -391,6 +403,8 @@ def auto_correct_text(text, config):
 		(re.compile(r'写囊费'), '窝囊费'),
 		(re.compile(r'窝赛安奈费'), '窝囊费'),
 		(re.compile(r'窝吉费'), '窝囊费'),
+		(re.compile(r'窝囊安奈费'), '窝囊费'),
+		(re.compile(r'(\d)\s*干(?=\s*[三五六八九])'), r'\1千'),  # 3干三 → 3千三
 	]
 	for pattern, replacement in regex_corrections:
 		corrected = pattern.sub(replacement, corrected)
