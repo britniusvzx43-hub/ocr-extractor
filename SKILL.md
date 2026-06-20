@@ -1,7 +1,7 @@
 ---
 name: ocr-extractor
-description: "Convert images (TIFF/PNG/JPG) to clean Chinese text via Tesseract OCR. Auto-detects and removes watermarks, applies Otsu binarization, batch processes multiple images, deduplicates, and outputs markdown. Self-improving via usage tracking and parameter learning."
-version: 1.1.0
+description: "Extract Chinese text from images (图片转文字). Converts TIFF/PNG/JPG to clean Markdown via Tesseract OCR. Auto-removes watermarks (水印去除), applies adaptive binarization, batches multiple images, deduplicates, and outputs structured notes. Ideal for Obsidian notes, document digitization (文档数字化), screenshot-to-text (截图转文字), and knowledge management (知识管理). Self-improving via usage tracking and parameter auto-tuning."
+version: 1.2.0
 license: MIT
 user-invocable: true
 allowed-tools:
@@ -12,10 +12,10 @@ allowed-tools:
   - Glob
   - Grep
 metadata:
-  domains: [ocr, document-processing, chinese-text, image-processing, obsidian]
+  domains: [ocr, chinese-ocr, document-processing, image-to-text, chinese-text, watermark-removal, image-processing, obsidian, knowledge-management, notes, digitization, screenshot-ocr, batch-processing, markdown-conversion, 图片转文字, 水印去除, 文档数字化, 笔记]
   type: pipeline
-  inputs: [image-files, directory-of-images, tiff, png, jpg]
-  outputs: [markdown, clean-text, structured-notes]
+  inputs: [image-files, directory-of-images, tiff, png, jpg, screenshots]
+  outputs: [markdown, clean-text, structured-notes, obsidian-notes]
   subagent_model: claude-sonnet-4-6
   self_improving: true
 ---
